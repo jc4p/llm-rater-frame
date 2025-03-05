@@ -36,13 +36,13 @@ export async function GET(request, { params }) {
     return NextResponse.json({
       name: `AI Personality Mirror #${tokenId}`,
       description: "This NFT represents a user's AI personality analysis results, showing which AI model best understands their online presence.",
-      image: IMAGE_URL_LOOKUP[dbData.chosen_ai] || 'https://images.kasra.codes/claude-3.5.png',
+      image: IMAGE_URL_LOOKUP[dbData.favorite_llm] || 'https://images.kasra.codes/claude-3.5.png',
       external_url: `https://llm-rater.kasra.codes/tokens/${tokenId}`,
       background_color: "D2E8DF", // Using our app's accent color
       attributes: [
         {
           trait_type: "Chosen AI",
-          value: dbData.chosen_ai || "Unknown"
+          value: dbData.favorite_llm || "Unknown"
         },
         {
           trait_type: "Analysis Date",
