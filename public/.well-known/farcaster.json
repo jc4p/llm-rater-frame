@@ -1,0 +1,17 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjk3NzIzMywidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweGE2N0JhMDI4MTIzMWVCOUUyZWE0Y0Y5Nzg5NGMwYjBiNUI4MDFDYzYifQ",
+    "payload": "eyJkb21haW4iOiJsbG0tcmF0ZXIua2FzcmEuY29kZXMifQ",
+    "signature": "MHgxNDFmYjI1N2Q1ZTZmMjVjNmY1MjdlMzYzMWRlMjZjNDZiOTVkMDgwMDg3ZmFiNGZlOWI0ZTE1NTE3ZjkxZmMxMzIzYjMxNTlkZWVkOTNiZmE0MGMyZjNlOTcwNDViNjFiMjI3MjZlNTAzMjgwNjhjYzFhMDdhMGNjZmY5MzYzYzFi"
+  },
+  "frame": {
+    "version": "1",
+    "name": "Which LLM Knows You Best?",
+    "iconUrl": "https://placehold.co/400x400/png",
+    "homeUrl": "https://llm-rater.kasra.codes",
+    "imageUrl": "https://placehold.co/1200x800/png",
+    "buttonTitle": "Try now!",
+    "splashImageUrl": "https://placehold.co/400x400/png",
+    "splashBackgroundColor": "#eeccff"
+  }
+}
