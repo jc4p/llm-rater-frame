@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { mintNFT } from '@/lib/frame';
 
-export default function UserHints() {
+export default function UserHints({ initialFavorite }) {
   const [loading, setLoading] = useState(false);
   const [geminiHints, setGeminiHints] = useState(null);
   const [openaiHints, setOpenaiHints] = useState(null);
@@ -11,6 +12,27 @@ export default function UserHints() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('gemini');
   const [selectedModel, setSelectedModel] = useState(null);
+  const [showMintModal, setShowMintModal] = useState(false);
+  const [savingFavorite, setSavingFavorite] = useState(false);
+  const [favoriteRowId, setFavoriteRowId] = useState(initialFavorite?.id || null);
+
+  // Set initial selected model based on initialFavorite
+  useEffect(() => {
+    if (initialFavorite) {
+      const modelMap = {
+        'claude-3.5': 'anthropic',
+        'gemini-2.0': 'gemini',
+        'gpt-4.5': 'openai'
+      };
+      const model = modelMap[initialFavorite.favorite_llm];
+      if (model) {
+        setSelectedModel(model);
+        setActiveTab(model);
+        // Fetch the analysis for the selected model
+        fetchHints(model);
+      }
+    }
+  }, [initialFavorite]);
 
   async function fetchHints(model) {
     try {
@@ -77,9 +99,45 @@ export default function UserHints() {
     }
   };
 
-  const handleVote = (model) => {
-    setSelectedModel(model);
-    console.log(`User voted for ${model}'s analysis as the most accurate description!`);
+  const handleVote = async (model) => {
+    try {
+      setSavingFavorite(true);
+      
+      // Map the model name to the standardized LLM name
+      const llmMap = {
+        'anthropic': 'claude-3.5',
+        'gemini': 'gemini-2.0',
+        'openai': 'gpt-4.5'
+      };
+      
+      const favorite_llm = llmMap[model];
+      
+      // Save the favorite
+      const response = await fetch('/api/save-favorite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fid: window.userFid,
+          favorite_llm
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save favorite');
+      }
+
+      const data = await response.json();
+      setFavoriteRowId(data.rowId);
+      setSelectedModel(model);
+      setShowMintModal(true);
+    } catch (error) {
+      console.error('Error saving favorite:', error);
+      // You might want to show an error toast here
+    } finally {
+      setSavingFavorite(false);
+    }
   };
 
   const getModelName = (model) => {
@@ -186,17 +244,30 @@ export default function UserHints() {
               {currentHints && (
                 <button
                   onClick={() => handleVote(activeTab)}
+                  disabled={savingFavorite}
                   style={{ 
                     backgroundColor: selectedModel === activeTab ? '#D2E8DF' : 'transparent',
                     borderColor: '#9DC3B7'
                   }}
-                  className={`w-full sm:w-auto px-4 py-1 rounded-full text-sm transition-colors border-2 text-gray-800 hover:opacity-90 ${
+                  className={`w-full sm:w-auto px-4 py-1 rounded-full text-sm transition-colors border-2 text-gray-800 hover:opacity-90 disabled:opacity-50 ${
                     selectedModel === activeTab
                       ? 'font-medium'
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  {selectedModel === activeTab ? '✓ Selected as Best Match' : 'This AI Gets Me!'}
+                  {savingFavorite ? (
+                    <span className="flex items-center gap-2">
+                      <div 
+                        className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-t-transparent"
+                        style={{ borderColor: '#9DC3B7', borderTopColor: 'transparent' }}
+                      />
+                      Saving...
+                    </span>
+                  ) : selectedModel === activeTab ? (
+                    '✓ Selected as Best Match'
+                  ) : (
+                    'This AI Gets Me!'
+                  )}
                 </button>
               )}
             </div>
@@ -246,6 +317,83 @@ export default function UserHints() {
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {showMintModal && favoriteRowId && userFavorite?.token_id === null && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.50)' }}
+          onClick={() => setShowMintModal(false)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl w-full max-w-md animate-fade-in overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-semibold">Mint Your Decision</h2>
+              <button 
+                onClick={() => setShowMintModal(false)}
+                className="text-gray-500 hover:text-gray-700 p-2"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6">
+              <p className="text-gray-600 mb-6">
+                Would you like to mint your decision as an NFT? This will create a permanent record of your choice on the blockchain.
+              </p>
+              
+              <div className="flex gap-4">
+                <button
+                  onClick={async () => {
+                    try {
+                      if (!favoriteRowId) {
+                        throw new Error('No favorite row ID found');
+                      }
+
+                      const result = await mintNFT(favoriteRowId);
+                      console.log('Mint result:', result);
+
+                      // Update the token ID in the database
+                      const updateResponse = await fetch('/api/update-token', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          rowId: favoriteRowId,
+                          tokenId: result.tokenId
+                        })
+                      });
+
+                      if (!updateResponse.ok) {
+                        throw new Error('Failed to update token ID');
+                      }
+
+                      setShowMintModal(false);
+                    } catch (error) {
+                      console.error('Error minting:', error);
+                      // You might want to show an error toast here
+                    }
+                  }}
+                  style={{ 
+                    backgroundColor: '#D2E8DF'
+                  }}
+                  className="flex-1 px-4 py-2 text-gray-800 rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Yes, Mint It!
+                </button>
+                <button
+                  onClick={() => setShowMintModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Maybe Later
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
