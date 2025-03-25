@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "src/app/api/hints/route.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "VERCEL_FUNCTION_TIMEOUT": "60000"
+  }
+}

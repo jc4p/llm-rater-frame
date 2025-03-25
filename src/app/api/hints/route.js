@@ -4,11 +4,10 @@ import { openai } from '@/lib/openai';
 import { anthropic } from '@/lib/anthropic';
 import { getUserCasts } from '@/lib/neynar-api';
 
-// Configure as edge function with increased timeout
-export const runtime = 'edge';
+// Configure with longer timeout using an environment variable
+// Vercel will use VERCEL_FUNCTION_TIMEOUT environment variable for the timeout value
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
-export const maxDuration = 90; // Set max duration to 90 seconds
 
 /**
  * Generate AI-powered hints about a Farcaster user based on their profile and recent casts.
