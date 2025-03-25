@@ -20,6 +20,7 @@ export default function UserHints({ initialFavorite }) {
   const [generatingPreview, setGeneratingPreview] = useState(false);
   // New state for tracking mint transaction status
   const [mintingStatus, setMintingStatus] = useState(null); // null | 'submitting' | 'pending' | 'confirmed' | 'failed'
+  const [mintTxHash, setMintTxHash] = useState(null); // Store transaction hash for rechecking
 
   // Set initial selected model based on initialFavorite
   useEffect(() => {
@@ -197,6 +198,84 @@ export default function UserHints({ initialFavorite }) {
     
     return () => clearInterval(interval);
   }, []);
+  
+  // Effect to poll for transaction status when in pending state
+  useEffect(() => {
+    if (mintingStatus !== 'pending' || !mintTxHash || !favoriteRowId) {
+      return; // Only run when we have a pending transaction
+    }
+    
+    console.log('Setting up polling for pending transaction:', mintTxHash);
+    
+    const checkTransactionStatus = async () => {
+      try {
+        // Try to get the latest transaction status
+        const response = await fetch(`/api/debug-tx?txHash=${mintTxHash}`);
+        if (!response.ok) {
+          console.error('Failed to check transaction status');
+          return;
+        }
+        
+        const data = await response.json();
+        console.log('Transaction status check result:', data);
+        
+        // If we found a token ID, update our state
+        if (data.tokenId) {
+          console.log(`Transaction confirmed with token ID: ${data.tokenId}`);
+          
+          // Update the local state
+          setUserFavorite(prev => ({
+            ...prev,
+            token_id: data.tokenId,
+            tx: mintTxHash
+          }));
+          
+          // Update minting status
+          setMintingStatus('confirmed');
+          
+          // Generate NFT image with the token ID if needed
+          if (!userFavorite?.image_url && profile?.pfp) {
+            const llmTypeMap = {
+              'anthropic': 'claude',
+              'gemini': 'gemini',
+              'openai': 'gpt'
+            };
+            
+            const llmType = llmTypeMap[selectedModel] || 'claude';
+            
+            try {
+              const imageUrl = await generateNFTImage({
+                pfpUrl: profile.pfp,
+                rowId: favoriteRowId,
+                llmType,
+                tokenId: data.tokenId
+              });
+              
+              if (imageUrl) {
+                setUserFavorite(prev => ({
+                  ...prev,
+                  image_url: imageUrl
+                }));
+              }
+            } catch (error) {
+              console.error('Error generating NFT image during status check:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking transaction status:', error);
+      }
+    };
+    
+    // Check immediately
+    checkTransactionStatus();
+    
+    // Then set up an interval to check every 10 seconds
+    const interval = setInterval(checkTransactionStatus, 10000);
+    
+    // Clean up the interval when the component unmounts or when we're no longer pending
+    return () => clearInterval(interval);
+  }, [mintingStatus, mintTxHash, favoriteRowId, profile, selectedModel]);
 
   // Handle tab change
   const handleTabChange = async (tab) => {
@@ -470,6 +549,9 @@ export default function UserHints({ initialFavorite }) {
                             
                             // Update UI to show we're waiting for blockchain confirmation
                             setMintingStatus('pending');
+                            
+                            // Save transaction hash for status polling
+                            setMintTxHash(result.txHash);
                             
                             // Update the token ID in the database with transaction hash
                             const updateResponse = await fetch('/api/update-token', {

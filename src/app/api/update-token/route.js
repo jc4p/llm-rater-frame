@@ -8,7 +8,7 @@ const pool = new pg.Pool({
 });
 
 // Contract address for the NFT
-const CONTRACT_ADDRESS = '0x6552063731A0a8b6cffdb29390812e6663d87388';
+const CONTRACT_ADDRESS = '0x3f54188e5b815b60da5b9354137f3e2c04435322';
 
 // Base RPC URL
 const BASE_RPC_URL = process.env.ALCHEMY_RPC_URL || 'https://mainnet.base.org';
@@ -19,7 +19,7 @@ const EVENT_ABI = [
 ];
 
 // Function to poll for transaction receipt
-async function pollForTransactionReceipt(provider, txHash, maxAttempts = 5, intervalMs = 2000) {
+async function pollForTransactionReceipt(provider, txHash, maxAttempts = 10, intervalMs = 3000) {
   let attempts = 0;
   
   while (attempts < maxAttempts) {
@@ -28,8 +28,10 @@ async function pollForTransactionReceipt(provider, txHash, maxAttempts = 5, inte
       return receipt;
     }
     
-    // Wait for next poll
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
+    // Wait for next poll - increase wait time with each attempt
+    const dynamicWaitTime = intervalMs * Math.pow(1.2, attempts);
+    console.log(`Waiting ${Math.round(dynamicWaitTime)}ms before next attempt`);
+    await new Promise(resolve => setTimeout(resolve, dynamicWaitTime));
     attempts++;
     console.log(`Polling for transaction receipt (attempt ${attempts}/${maxAttempts})`);
   }
@@ -51,6 +53,8 @@ async function getTokenIdFromTransaction(txHash) {
       return null;
     }
     
+    console.log(`Found receipt: blockNumber=${receipt.blockNumber}, status=${receipt.status}`);
+    
     // Filter logs to find those from our contract address
     const contractLogs = receipt.logs.filter(log => 
       log.address.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()
@@ -58,51 +62,109 @@ async function getTokenIdFromTransaction(txHash) {
     
     console.log(`Found ${contractLogs.length} logs from our contract`);
     
-    // Create an interface to parse the logs
-    const iface = new ethers.Interface(EVENT_ABI);
-    
-    // Look for the Transfer event from null address (mint)
-    for (const log of contractLogs) {
-      try {
-        const parsedLog = iface.parseLog({
-          topics: log.topics,
-          data: log.data
-        });
-        
-        // Check if it's a Transfer event from the zero address (which indicates a mint)
-        if (
-          parsedLog && 
-          parsedLog.name === 'Transfer' && 
-          parsedLog.args[0] === '0x0000000000000000000000000000000000000000'
-        ) {
-          const tokenId = parsedLog.args[2];
-          console.log(`Found minted token ID: ${tokenId}`);
-          return Number(tokenId);
+    // APPROACH 1: Try to parse Transfer event using ethers
+    try {
+      const iface = new ethers.Interface(EVENT_ABI);
+      let transferFound = false;
+      
+      // Look for the Transfer event from null address (mint)
+      for (const log of contractLogs) {
+        try {
+          // Check for Transfer event signature
+          if (log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef') {
+            transferFound = true;
+            console.log('Found log with Transfer signature:', log.topics);
+            
+            // Try to parse the log
+            const parsedLog = iface.parseLog({
+              topics: log.topics,
+              data: log.data
+            });
+            
+            // Check if it's a mint (from zero address)
+            if (parsedLog && parsedLog.name === 'Transfer') {
+              console.log(`Parsed Transfer event: from=${parsedLog.args[0]}, to=${parsedLog.args[1]}, tokenId=${parsedLog.args[2]}`);
+              
+              if (parsedLog.args[0] === '0x0000000000000000000000000000000000000000') {
+                const tokenId = parsedLog.args[2];
+                console.log(`Found minted token ID: ${tokenId}`);
+                return Number(tokenId);
+              }
+            }
+          }
+        } catch (error) {
+          console.log('Error parsing log:', error.message);
+          // Continue to the next log
         }
-      } catch (error) {
-        // This log isn't a Transfer event we can parse, continue to the next one
-        continue;
       }
+      
+      if (transferFound) {
+        console.log('Found Transfer events but none were mints');
+      }
+    } catch (error) {
+      console.log('Error in Transfer event parsing approach:', error.message);
     }
     
-    // If we couldn't find a Transfer event but have logs, try to get the token ID by position
-    // Many NFT contracts emit the token ID as the third indexed parameter (fourth topic since topics[0] is the event signature)
+    // APPROACH 2: Try manual topic extraction
+    console.log('Trying topic extraction approach...');
     if (contractLogs.length > 0) {
       for (const log of contractLogs) {
-        if (log.topics.length >= 4) {  // We need at least 4 topics (event signature + 3 indexed params)
-          try {
-            // The fourth topic (index 3) would be the token ID in the Transfer event
-            const possibleTokenId = ethers.toBigInt(log.topics[3]);
-            console.log(`Found possible token ID from topic: ${possibleTokenId}`);
-            return Number(possibleTokenId);
-          } catch (error) {
-            console.error('Error parsing token ID from topic:', error);
+        // Check for Transfer event signature
+        if (log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef') {
+          console.log('Log topics:', log.topics);
+          
+          // Check for mint (from zero address)
+          if (log.topics.length >= 3) {
+            const fromTopic = log.topics[1];
+            // Zero address padded to 32 bytes
+            const zeroAddress = '0x0000000000000000000000000000000000000000000000000000000000000000';
+            
+            if (fromTopic.includes('0000000000000000000000000000000000000000')) {
+              console.log('This appears to be a mint (transfer from zero address)');
+              
+              if (log.topics.length >= 4) {
+                try {
+                  // The topic at index 3 should be the token ID
+                  const tokenIdHex = log.topics[3];
+                  const tokenId = ethers.toBigInt(tokenIdHex);
+                  console.log(`Extracted token ID from topic: ${tokenId}`);
+                  return Number(tokenId);
+                } catch (error) {
+                  console.log('Error converting topic to token ID:', error.message);
+                }
+              }
+            }
           }
         }
       }
     }
     
-    console.log('No Transfer event found in transaction logs');
+    // APPROACH 3: Try to make an educated guess based on total supply
+    try {
+      console.log('Trying total supply approach...');
+      // Basic ABI for totalSupply
+      const basicAbi = ["function totalSupply() view returns (uint256)"];
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, basicAbi, provider);
+      
+      // Get current total supply
+      const totalSupply = await contract.totalSupply();
+      console.log(`Current total supply: ${totalSupply}`);
+      
+      // Check if the transaction is recent (within last few blocks)
+      const currentBlock = await provider.getBlockNumber();
+      const transactionBlock = receipt.blockNumber;
+      const blockDifference = currentBlock - transactionBlock;
+      
+      if (blockDifference < 10) {
+        // If this is a recent transaction, the token ID might be the current total supply
+        console.log(`This is a recent transaction (${blockDifference} blocks ago). The token ID might be the current total supply.`);
+        return Number(totalSupply);
+      }
+    } catch (error) {
+      console.log('Error in total supply approach:', error.message);
+    }
+    
+    console.log('No methods succeeded in finding token ID');
     return null;
   } catch (error) {
     console.error('Error getting token ID from transaction:', error);
