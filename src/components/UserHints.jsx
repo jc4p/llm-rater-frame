@@ -388,9 +388,12 @@ export default function UserHints({ initialFavorite }) {
                           />
                         );
                       })()}
-                      <div className="absolute top-2 right-2 bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded-full font-medium">
-                        Preview
-                      </div>
+                      {/* Only show Preview badge if they haven't minted yet */}
+                      {(!userFavorite || userFavorite.token_id === null) && (
+                        <div className="absolute top-2 right-2 bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded-full font-medium">
+                          Preview
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-gray-100 rounded-lg h-64 flex items-center justify-center">
@@ -413,7 +416,8 @@ export default function UserHints({ initialFavorite }) {
                   )}
                   
                   <div className="flex flex-col gap-3 w-full">
-                    {(!userFavorite || (userFavorite && userFavorite.token_id === null)) && (
+                    {/* Only show mint button if they have a favorite and no token_id yet */}
+                    {userFavorite && userFavorite.token_id === null && (
                       <button
                         onClick={async () => {
                           try {
