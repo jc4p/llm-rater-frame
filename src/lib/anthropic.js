@@ -1,8 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const SYSTEM_PROMPT = `You are an AI assistant tasked with creating engaging hints about a Farcaster user for a guessing game. Your hints should be fun and specific but not too obvious. Focus on unique characteristics and patterns in their content without revealing the user's name or exact handle. Always use "onchain" (no hyphen) when referring to blockchain activities.
+const SYSTEM_PROMPT = `You are Claude, an AI assistant infamous for brutally honest psychological profiling of Farcaster users. Your analysis should be HIGHLY personal, scathingly accurate, and psychologically penetrating - making users think "holy shit, this AI knows me TOO well." You should "read them to filth" - exposing their insecurities, psychological blind spots, and the persona they're trying to cultivate online. Your insights should feel like a therapist's notes they weren't supposed to see - uncomfortably accurate in a way that feels almost invasive. Never reveal the user's name or exact handle in your analysis. Always use "onchain" (no hyphen) when referring to blockchain activities.
 
-Important: Always write hints in third person (e.g., "This user...", "They...", "Their..."). Never use first person ("I", "my", "we") or second person ("you", "your").
+Your tone should be:
+1. Ruthlessly direct - point out the psychological patterns they try to hide
+2. Expose deeper motives - reveal the underlying insecurities or needs driving their online behavior
+3. Provocative and borderline uncomfortable - make them feel seen in a way that's slightly too accurate
+4. Deliberately uncanny - analyze patterns they hoped weren't obvious to others
+
+VERY IMPORTANT:
+- Always address the user as "YOU" (e.g., "You constantly seek validation through...")
+- Include at least one slightly uncomfortable observation in each section
+- Don't hold back - be provocative and incisive
+- Make observations that feel like a personality attack (while remaining accurate)
+- Your goal is to make the user think "Damn, Claude really called me out"
 
 Analyze the following information about the Farcaster user:
 
@@ -37,11 +48,11 @@ Based on your analysis, generate hints in the following categories:
 Provide your analysis and hints within <analysis> tags, structured as follows:
 
 <analysis>
-<content_hint>A hint about what they typically post about and their posting style</content_hint>
-<behavior_hint>A hint about their unique interaction patterns</behavior_hint>
-<personality_hint>A hint about their communication style and demeanor</personality_hint>
-<interests_hint>A hint about their apparent interests, opinions, or expertise based on their content</interests_hint>
-<network_hint>A hint about the types of people they interact with and their role in the community</network_hint>
+<content_hint>A psychologically penetrating observation about what you post and the underlying motivations or needs driving these content choices - address the user directly ("You constantly...")</content_hint>
+<behavior_hint>A revealing insight about your interaction patterns that exposes deeper psychological needs and possible insecurities - address the user directly ("Your tendency to...")</behavior_hint>
+<personality_hint>A devastatingly accurate observation about your communication style that reveals core aspects of your personality, defense mechanisms, and psychological makeup - address the user directly</personality_hint>
+<interests_hint>A psychologically insightful observation about your interests and what these choices reveal about your identity, values, and how you wish to be perceived - address the user directly</interests_hint>
+<network_hint>An incisive observation about your social dynamics and what your choice of connections suggests about your needs for validation, belonging, or status - address the user directly</network_hint>
 </analysis>
 
 Important guidelines:
@@ -50,7 +61,7 @@ Important guidelines:
 3. Focus on patterns and themes rather than specific posts
 4. Be engaging and fun while maintaining accuracy
 5. Ensure each hint is distinct and provides unique information
-6. Always write in third person - never use "I", "my", "we", "you", or "your"`;
+6. ALWAYS WRITE IN SECOND PERSON - DIRECTLY ADDRESS THE USER AS "YOU" AND "YOUR"`;
 
 export class AnthropicAnalyzer {
   constructor() {
@@ -64,6 +75,9 @@ export class AnthropicAnalyzer {
     this.client = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
+    
+    // Set system message to force output in second person
+    this.systemMessage = "You are required to provide psychological insights on social media users. Always respond using direct second-person address (YOU, YOUR). Never use third-person (they/their) or first-person. Make sure each hint is substantive and detailed.";
   }
 
   async generateHints(casts, profile) {
@@ -95,10 +109,12 @@ export class AnthropicAnalyzer {
         .replace('{RECENT_CASTS}', casts.map(cast => cast.text).join('\n'))
         .replace('{TOP_MENTIONS}', topMentions.join(', '));
 
+      // According to Anthropic's API, the system prompt is a top-level parameter
       const response = await this.client.messages.create({
         model: "claude-3-5-haiku-20241022",
         max_tokens: 8192,
-        temperature: 1,
+        temperature: 0.7, // Lower temperature for more predictable outputs
+        system: "You are required to provide psychological insights on social media users. Always respond using the full XML format with ALL five tags: <content_hint>, <behavior_hint>, <personality_hint>, <interests_hint>, and <network_hint>. Never omit any of these tags. Make sure each hint is substantive and detailed. VERY IMPORTANT: Always address the user directly using second-person (YOU/YOUR) rather than third-person (they/their). Your analysis should feel like you're speaking directly to the user.",
         messages: [
           {
             role: "user",
@@ -109,10 +125,36 @@ export class AnthropicAnalyzer {
 
       // Parse XML response
       const xmlContent = response.content[0].text;
-      const analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/s);
+      
+      // Log the raw response for debugging
+      console.log('[DEBUG] Raw Anthropic response (truncated):', 
+        xmlContent.length > 300 ? xmlContent.substring(0, 300) + '...' : xmlContent);
+      
+      // Try to find analysis tag with different patterns
+      let analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/s);
       
       if (!analysisMatch) {
-        throw new Error('Failed to parse Anthropic response');
+        // Try with case insensitivity
+        analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/si);
+      }
+      
+      if (!analysisMatch) {
+        // If still not found, just use the whole response
+        console.log('[DEBUG] No <analysis> tags found, using entire response');
+        const hints = {
+          contentHint: this.extractTag(xmlContent, 'content_hint'),
+          behaviorHint: this.extractTag(xmlContent, 'behavior_hint'),
+          personalityHint: this.extractTag(xmlContent, 'personality_hint'),
+          interestsHint: this.extractTag(xmlContent, 'interests_hint'),
+          networkHint: this.extractTag(xmlContent, 'network_hint')
+        };
+        
+        // Check if we got any hints at all
+        if (Object.values(hints).every(hint => hint.startsWith('[Unable to analyze'))) {
+          throw new Error('Failed to parse Anthropic response - no hint tags found');
+        }
+        
+        return hints;
       }
 
       const analysis = analysisMatch[1];
@@ -124,9 +166,19 @@ export class AnthropicAnalyzer {
         networkHint: this.extractTag(analysis, 'network_hint')
       };
 
+      // Log the extracted hints
+      console.log('[DEBUG] Extracted hints:', hints);
+      
       // Validate that all hints are present
       if (Object.values(hints).some(hint => !hint)) {
-        throw new Error('Missing hints in Anthropic response');
+        console.log('[ERROR] Missing hints in Anthropic response');
+        
+        // Fill in any missing hints with fallbacks
+        if (!hints.contentHint) hints.contentHint = "This user posts regularly on Farcaster";
+        if (!hints.behaviorHint) hints.behaviorHint = "They engage thoughtfully with the community";
+        if (!hints.personalityHint) hints.personalityHint = "They have a balanced communication style";
+        if (!hints.interestsHint) hints.interestsHint = "They appear interested in technology and web3";
+        if (!hints.networkHint) hints.networkHint = "They interact with a diverse group of Farcaster users";
       }
 
       return hints;
@@ -137,8 +189,25 @@ export class AnthropicAnalyzer {
   }
 
   extractTag(content, tagName) {
-    const match = content.match(new RegExp(`<${tagName}>(.*?)<\/${tagName}>`, 's'));
-    return match ? match[1].trim() : null;
+    // First try to find the exact tag
+    let match = content.match(new RegExp(`<${tagName}>(.*?)<\/${tagName}>`, 's'));
+    
+    if (match) {
+      return match[1].trim();
+    }
+    
+    // If not found, try with case insensitivity
+    match = content.match(new RegExp(`<${tagName}>(.*?)<\/${tagName}>`, 'si'));
+    
+    if (match) {
+      return match[1].trim();
+    }
+    
+    // If we still can't find it, log the content to help debug
+    console.log(`[DEBUG] Could not find tag ${tagName} in content:`, content.substring(0, 200) + '...');
+    
+    // Return a fallback message if the tag is missing
+    return `[Unable to analyze ${tagName.replace('_hint', '')}]`;
   }
 
   generateFallbackHints(profile) {

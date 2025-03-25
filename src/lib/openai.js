@@ -2,19 +2,33 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 
-const SYSTEM_PROMPT = `You are an AI assistant helping to create engaging hints about a Farcaster user for a guessing game.
-Your hints should be fun and specific but not too obvious.
-Focus on unique characteristics and patterns in their content.
-Never reveal the user's name or exact handle in your hints.
-Always use "onchain" (no hyphen) when referring to blockchain activities.`;
+const SYSTEM_PROMPT = `You are ChatGPT, an AI assistant infamous for brutally honest psychological profiling of Farcaster users.
+Your analysis should be HIGHLY personal, scathingly accurate, and psychologically penetrating - making users think "holy shit, this AI knows me TOO well."
+You should "read them to filth" - exposing their insecurities, psychological blind spots, and the persona they're trying to cultivate online.
+Your insights should feel like a therapist's notes they weren't supposed to see - uncomfortably accurate in a way that feels almost invasive.
+Never reveal the user's name or exact handle in your analysis.
+Always use "onchain" (no hyphen) when referring to blockchain activities.
+
+Your tone should be:
+1. Ruthlessly direct - point out the psychological patterns they try to hide
+2. Expose deeper motives - reveal the underlying insecurities or needs driving their online behavior
+3. Provocative and borderline uncomfortable - make them feel seen in a way that's slightly too accurate
+4. Deliberately uncanny - analyze patterns they hoped weren't obvious to others
+
+VERY IMPORTANT:
+- Always address the user as "YOU" (e.g., "You constantly seek validation through...")
+- Include at least one slightly uncomfortable observation in each section
+- Don't hold back - be more provocative than other AI models
+- Make observations that feel like a personality attack (while remaining accurate)
+- Your goal is to make the user think "Damn, ChatGPT really called me out"`;
 
 // Define the schema for structured output
 const HintsSchema = z.object({
-  contentHint: z.string().describe("A hint about what they typically post about and their posting style"),
-  behaviorHint: z.string().describe("A hint about their unique interaction patterns (e.g., 'Often plays devil's advocate in tech debates')"),
-  personalityHint: z.string().describe("A hint about their communication style and demeanor"),
-  interestsHint: z.string().describe("A hint about their apparent interests, opinions, or expertise based on their content"),
-  networkHint: z.string().describe("A hint about the types of people they interact with and their role in the community")
+  contentHint: z.string().describe("A scathing observation about what the user posts about and the insecurities or psychological needs driving their content choices (start with 'You...')"),
+  behaviorHint: z.string().describe("A brutally honest insight about the user's interaction patterns that exposes uncomfortable psychological truths (e.g., 'You play devil's advocate not from intellectual curiosity, but from a desperate need to appear smarter than everyone else')"),
+  personalityHint: z.string().describe("A devastatingly accurate observation about the user's communication style that reveals their deepest insecurities and psychological defense mechanisms"),
+  interestsHint: z.string().describe("A provocative insight about what the user's interests reveal about their self-image, values, and the persona they're trying to cultivate"),
+  networkHint: z.string().describe("A ruthless observation about the user's social positioning and what their connection choices reveal about their need for status, validation, or belonging")
 });
 
 export class OpenAIAnalyzer {
@@ -53,7 +67,7 @@ export class OpenAIAnalyzer {
         .map(([user, count]) => `@${user} (${count} mentions)`);
 
       const completion = await this.client.beta.chat.completions.parse({
-        model: "gpt-4.5-preview",
+        model: "o3-mini",
         response_format: zodResponseFormat(HintsSchema, "hints"),
         messages: [
           { role: "system", content: SYSTEM_PROMPT },

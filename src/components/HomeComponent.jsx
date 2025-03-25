@@ -12,7 +12,8 @@ export default function HomeComponent() {
   const [showMintModal, setShowMintModal] = useState(false);
 
   const checkFavoriteStatus = async () => {
-    if (!window.userFid) return;
+    // Safely check for window object (prevents SSR issues)
+    if (typeof window === 'undefined' || !window.userFid) return;
 
     try {
       const response = await fetch(`/api/check-favorite?fid=${window.userFid}`);
@@ -21,6 +22,11 @@ export default function HomeComponent() {
       if (data.hasFavorite) {
         setUserFavorite(data.favorite);
         // Remove automatic showing of mint modal
+      } else {
+        console.log('No favorite found, new user detected');
+        // If no favorite exists, we ensure the user is set to null explicitly
+        // This will trigger the useEffect in UserHints for new users
+        setUserFavorite(null);
       }
     } catch (error) {
       console.error('Error checking favorite status:', error);
@@ -28,15 +34,26 @@ export default function HomeComponent() {
   };
 
   useEffect(() => {
-    // Check every 1s if userFid is available (it's set by frame.js)
-    const interval = setInterval(() => {
-      if (window.userFid) {
-        checkFavoriteStatus();
-        clearInterval(interval);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
+    // Only run this effect on the client side
+    if (typeof window === 'undefined') return;
+    
+    // Import frameReady dynamically to avoid SSR issues
+    import('@/lib/frame').then(({ frameReady }) => {
+      // Check every 1s if userFid is available (it's set by frame.js)
+      const interval = setInterval(() => {
+        if (window.userFid) {
+          checkFavoriteStatus();
+          
+          // Always call frameReady here to ensure the frame is interactive
+          // This ensures the splash screen is removed and the frame is responsive
+          frameReady();
+          
+          clearInterval(interval);
+        }
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    });
   }, []);
 
   const fetchLeaderboard = async () => {
@@ -57,33 +74,18 @@ export default function HomeComponent() {
     <>
       <div className="min-h-screen bg-fog p-8">
         <div className="max-w-4xl mx-auto">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-3xl font-bold text-center">LLM Rater Frame</h1>
+          <div className="flex justify-end mb-4">
             <button
               onClick={fetchLeaderboard}
-              className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all"
+              className="flex items-center justify-center w-10 h-10 bg-white rounded-full shadow-sm hover:shadow-md transition-all"
               disabled={loading}
+              aria-label="View leaderboard"
             >
-              <span role="img" aria-label="trophy">🏆</span>
-              <span>{loading ? 'Loading...' : 'Leaderboard'}</span>
+              <span role="img" aria-label="trophy" className="text-xl">🏆</span>
             </button>
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow-md">
-            {userFavorite && userFavorite.token_id === null && (
-              <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-yellow-800 mb-2">
-                  You've selected {userFavorite.favorite_llm} as your favorite AI! Would you like to mint this decision as an NFT?
-                </p>
-                <button
-                  onClick={() => setShowMintModal(true)}
-                  style={{ backgroundColor: '#D2E8DF' }}
-                  className="px-4 py-2 text-gray-800 rounded-lg hover:opacity-90 transition-opacity"
-                >
-                  Mint Decision
-                </button>
-              </div>
-            )}
             <UserHints initialFavorite={userFavorite} />
           </div>
         </div>
@@ -142,7 +144,7 @@ export default function HomeComponent() {
                             <span className="text-xl">
                               {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : ''}
                             </span>
-                            <span className="font-medium">{item.favorite_llm}</span>
+                            <span className="font-medium">{item.display_name || item.favorite_llm}</span>
                           </div>
                           <div className="text-right">
                             <span className="text-gray-600">{item.users_count} votes</span>
@@ -194,10 +196,26 @@ export default function HomeComponent() {
                 <button
                   onClick={async () => {
                     try {
+                      // Get user profile for the PFP
+                      // Safely check for window object (prevents SSR issues)
+                      if (typeof window === 'undefined') {
+                        throw new Error('Window not defined');
+                      }
+                      
+                      const profileResponse = await fetch(`/api/hints?fid=${window.userFid}&limit=1`);
+                      const profileData = await profileResponse.json();
+                      const pfpUrl = profileData.profile?.pfp;
+                      
+                      // Check if we have the profile picture
+                      if (!pfpUrl) {
+                        console.warn('No profile picture found, proceeding without image generation');
+                      }
+                      
+                      // Start minting
                       const result = await mintNFT(userFavorite.id);
                       console.log('Mint result:', result);
 
-                      // Update the token ID in the database
+                      // Update the token ID in the database with the transaction hash
                       const updateResponse = await fetch('/api/update-token', {
                         method: 'POST',
                         headers: {
@@ -205,12 +223,40 @@ export default function HomeComponent() {
                         },
                         body: JSON.stringify({
                           rowId: userFavorite.id,
-                          tokenId: result.tokenId
+                          txHash: result.txHash,
+                          fid: result.fid
                         })
                       });
 
                       if (!updateResponse.ok) {
-                        throw new Error('Failed to update token ID');
+                        throw new Error('Failed to update transaction data');
+                      }
+                      
+                      // Generate NFT image if profile picture is available
+                      if (pfpUrl) {
+                        try {
+                          // Map the LLM name to the template name
+                          const llmTypeMap = {
+                            'claude-3.5': 'claude',
+                            'gemini-2.0': 'gemini',
+                            'gpt-4.5': 'gpt'
+                          };
+                          
+                          const llmType = llmTypeMap[userFavorite.favorite_llm] || 'claude';
+                          
+                          // Generate and store the NFT image
+                          const imageUrl = await generateNFTImage({
+                            pfpUrl,
+                            rowId: userFavorite.id,
+                            llmType,
+                            tokenId: result.tokenId // This might be undefined, which is fine
+                          });
+                          
+                          console.log('Generated NFT image:', imageUrl);
+                        } catch (imageError) {
+                          console.error('Error generating NFT image:', imageError);
+                          // Continue even if image generation fails
+                        }
                       }
 
                       // Refresh user's favorite status

@@ -6,12 +6,12 @@
   },
   "frame": {
     "version": "1",
-    "name": "Which LLM Knows You Best?",
-    "iconUrl": "https://placehold.co/400x400/png",
+    "name": "AI Best Friend Finder",
+    "iconUrl": "https://images.kasra.codes/favorite-llm/splash-icon-transparent.png",
     "homeUrl": "https://llm-rater.kasra.codes",
-    "imageUrl": "https://placehold.co/1200x800/png",
-    "buttonTitle": "Try now!",
-    "splashImageUrl": "https://placehold.co/400x400/png",
-    "splashBackgroundColor": "#eeccff"
+    "imageUrl": "https://images.kasra.codes/favorite-llm/image-url-default.png",
+    "buttonTitle": "Analyze Me, AI",
+    "splashImageUrl": "https://images.kasra.codes/favorite-llm/splash-icon-transparent.png",
+    "splashBackgroundColor": "#FFFFFF"
   }
 }
