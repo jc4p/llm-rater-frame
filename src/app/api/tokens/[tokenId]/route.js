@@ -18,11 +18,13 @@ export async function GET(request, { params }) {
       const { rows } = await sql`
         SELECT * FROM user_favorite_llm WHERE token_id = ${fallbackTokenId}
       `;
+
+      const name = tokenId === '0' ? 'Claude Best Friend #0' : 'Claude Best Friend #1';
       
       // If we don't have token #1 either, use a hardcoded fallback
       if (rows.length === 0) {
         return NextResponse.json({
-          name: `Claude Best Friend #0`,
+          name: name,
           description: `This NFT proves that Claude knows you better than any other AI. It analyzed your Farcaster posts and discovered your personality traits, interests, and digital persona.`,
           image: 'https://images.kasra.codes/favorite-llm/image-url-default.png',
           background_color: "D2E8DF",

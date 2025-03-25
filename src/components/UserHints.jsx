@@ -57,16 +57,16 @@ export default function UserHints({ initialFavorite }) {
   // Track which models are currently being fetched to prevent duplicate requests
   const [fetchingModels, setFetchingModels] = useState(new Set());
   
-  async function fetchHints(model) {
+  async function fetchHints(model, isRetry = false) {
     try {
-      // Check if we've already fetched this model
-      if (fetchedModels.has(model)) {
+      // Check if we've already fetched this model (unless it's a retry)
+      if (!isRetry && fetchedModels.has(model)) {
         console.log(`Skipping fetch for ${model} - already fetched`);
         return;
       }
       
-      // Check if we're already fetching this model
-      if (fetchingModels.has(model)) {
+      // Check if we're already fetching this model (unless it's a retry)
+      if (!isRetry && fetchingModels.has(model)) {
         console.log(`Skipping fetch for ${model} - already in progress`);
         return;
       }
@@ -89,7 +89,7 @@ export default function UserHints({ initialFavorite }) {
         return;
       }
       
-      console.log(`Fetching ${model} hints for FID ${window.userFid}`);
+      console.log(`Fetching ${model} hints for FID ${window.userFid}${isRetry ? ' (retry)' : ''}`);
       const response = await fetch(`/api/hints?fid=${window.userFid}&limit=300&model=${model}`);
       const data = await response.json();
       
@@ -98,6 +98,31 @@ export default function UserHints({ initialFavorite }) {
       }
       
       setProfile(data.profile);
+      
+      // Check if OpenAI is retrying
+      if (data.isRetrying && model === 'openai') {
+        console.log('OpenAI is automatically retrying, showing temporary content...');
+        
+        // Set temporary hints
+        setOpenaiHints(data.hints);
+        
+        // Start a timer to automatically retry after a delay
+        setTimeout(() => {
+          console.log('Auto-retrying OpenAI after delay...');
+          fetchHints('openai', true); // Pass true to indicate this is a retry
+        }, 5000); // 5 second delay
+        
+        // Remove from fetching models but don't mark as fetched yet
+        setFetchingModels(prev => {
+          const updated = new Set([...prev]);
+          updated.delete(model);
+          return updated;
+        });
+        
+        return;
+      }
+      
+      // Normal case - update the hints
       switch (model) {
         case 'gemini':
           setGeminiHints(data.hints);
@@ -120,6 +145,39 @@ export default function UserHints({ initialFavorite }) {
       console.log(`Successfully fetched ${model} hints`);
     } catch (error) {
       console.error('Error generating hints:', error);
+      
+      // For OpenAI, if there's a timeout or general error, retry automatically once
+      if (model === 'openai' && !isRetry) {
+        console.log('OpenAI API failed, will retry automatically...');
+        
+        // Set temporary retry hints
+        setOpenaiHints({
+          contentHint: "ChatGPT is taking a bit longer than usual...",
+          behaviorHint: "Retrying analysis of your posting habits...",
+          personalityHint: "Preparing your personality insights...",
+          interestsHint: "Analyzing your interests again...",
+          networkHint: "Re-examining your social connections..."
+        });
+        
+        // Remove from fetching set but don't mark as fetched
+        setFetchingModels(prev => {
+          const updated = new Set([...prev]);
+          updated.delete(model);
+          return updated;
+        });
+        
+        // Schedule a retry after a delay
+        setTimeout(() => {
+          console.log('Auto-retrying OpenAI after frontend error...');
+          fetchHints('openai', true);
+        }, 3000);
+        
+        // Don't show error to user since we're retrying
+        setLoading(false);
+        return;
+      }
+      
+      // For other models or if it's already a retry, show the error
       setError(error.message || 'Failed to generate hints');
       
       // Remove from fetching models on error
@@ -915,10 +973,23 @@ export default function UserHints({ initialFavorite }) {
 }
 
 function HintItem({ label, hint }) {
+  // Check if this is a retry message
+  const isRetrying = hint?.includes("Retrying analysis") || 
+                     hint?.includes("thinking harder") ||
+                     hint?.includes("detailed insights") ||
+                     hint?.includes("more carefully");
+  
   return (
-    <div className="bg-gray-50 p-2.5 rounded-md">
+    <div className={`p-2.5 rounded-md ${isRetrying ? 'bg-amber-50' : 'bg-gray-50'}`}>
       <p className="text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">{label}</p>
-      <p className="text-gray-800 break-words text-sm">{hint}</p>
+      {isRetrying ? (
+        <div className="flex items-center gap-2">
+          <div className="animate-spin rounded-full h-3 w-3 border-2 border-t-transparent border-amber-500"></div>
+          <p className="text-amber-800 break-words text-sm">{hint}</p>
+        </div>
+      ) : (
+        <p className="text-gray-800 break-words text-sm">{hint}</p>
+      )}
     </div>
   );
 } 

@@ -43,11 +43,14 @@ export class OpenAIAnalyzer {
     this.client = new OpenAI();
   }
 
-  async generateHints(casts, profile) {
+  async generateHints(casts, profile, retryCount = 0) {
     if (this.isDisabled) {
       return this.generateFallbackHints(profile);
     }
 
+    // Maximum number of retries
+    const MAX_RETRIES = 1; // Will try once, then retry once more if it fails
+    
     try {
       // Extract usernames mentioned in casts for interaction analysis
       const mentionedUsers = new Map();
@@ -66,6 +69,8 @@ export class OpenAIAnalyzer {
         .slice(0, 10)
         .map(([user, count]) => `@${user} (${count} mentions)`);
 
+      console.log(`Attempting to generate OpenAI hints (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
+      
       const completion = await this.client.beta.chat.completions.parse({
         model: "o3-mini",
         response_format: zodResponseFormat(HintsSchema, "hints"),
@@ -105,7 +110,32 @@ Remember:
 
       return completion.choices[0].message.parsed;
     } catch (error) {
-      console.error('Error generating hints:', error);
+      console.error(`Error generating OpenAI hints (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
+      
+      // If we haven't reached the maximum number of retries, try again
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Retrying OpenAI hints generation (${retryCount + 1}/${MAX_RETRIES})...`);
+        
+        // Add a slight delay before retrying to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Return special retry object if this is a retry
+        if (retryCount === 0) {
+          return {
+            contentHint: "Retrying analysis...",
+            behaviorHint: "ChatGPT is thinking harder about your posts...",
+            personalityHint: "Generating detailed insights...",
+            interestsHint: "Analyzing your interests more carefully...",
+            networkHint: "Examining your social connections...",
+            _isRetrying: true // Special flag to indicate we're retrying
+          };
+        }
+        
+        // Try again with incremented retry count
+        return this.generateHints(casts, profile, retryCount + 1);
+      }
+      
+      // If we've exhausted our retries, return the fallback hints
       return this.generateFallbackHints(profile);
     }
   }

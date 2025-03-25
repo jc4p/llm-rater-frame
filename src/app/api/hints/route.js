@@ -4,6 +4,12 @@ import { openai } from '@/lib/openai';
 import { anthropic } from '@/lib/anthropic';
 import { getUserCasts } from '@/lib/neynar-api';
 
+// Configure as edge function with increased timeout
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const maxDuration = 90; // Set max duration to 90 seconds
+
 /**
  * Generate AI-powered hints about a Farcaster user based on their profile and recent casts.
  * 
@@ -66,12 +72,19 @@ export async function GET(request) {
     
     // Generate hints using the requested model
     let hints;
+    let isRetrying = false;
+    
     switch (model) {
       case 'gemini':
         hints = await gemini.generateHints(castData.casts, profile);
         break;
       case 'openai':
         hints = await openai.generateHints(castData.casts, profile);
+        // Check if OpenAI is retrying
+        if (hints._isRetrying) {
+          isRetrying = true;
+          delete hints._isRetrying; // Remove the special flag before sending to client
+        }
         break;
       case 'anthropic':
         hints = await anthropic.generateHints(castData.casts, profile);
@@ -79,7 +92,11 @@ export async function GET(request) {
     }
     
     // Return hints as JSON response
-    return NextResponse.json({ profile, hints });
+    return NextResponse.json({ 
+      profile, 
+      hints, 
+      isRetrying: isRetrying 
+    });
     
   } catch (error) {
     console.error('Error generating hints:', error);
