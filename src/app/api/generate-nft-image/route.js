@@ -40,11 +40,13 @@ export async function POST(request) {
     const imageBuffer = await imageResponse.arrayBuffer();
     
     // Create a unique, meaningful filename
-    const filename = `favorite-llm/nft-${fid}-${template}-${tokenId || Date.now()}.png`;
+    // Use rowId as part of the filename to ensure we can find it later even without a token ID
+    const filename = `favorite-llm/nft-${fid}-${template}-${rowId}-${tokenId || Date.now()}.png`;
     console.log('[API_DEBUG] Uploading NFT image to R2:', { 
       filename, 
       size: imageBuffer.byteLength,
       fid,
+      rowId,
       template,
       tokenId: tokenId || 'not provided'
     });

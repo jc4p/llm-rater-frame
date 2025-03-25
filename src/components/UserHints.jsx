@@ -18,6 +18,8 @@ export default function UserHints({ initialFavorite }) {
   const [userFavorite, setUserFavorite] = useState(initialFavorite || null);
   const [nftPreviewUrl, setNftPreviewUrl] = useState(null);
   const [generatingPreview, setGeneratingPreview] = useState(false);
+  // New state for tracking mint transaction status
+  const [mintingStatus, setMintingStatus] = useState(null); // null | 'submitting' | 'pending' | 'confirmed' | 'failed'
 
   // Set initial selected model based on initialFavorite
   useEffect(() => {
@@ -415,6 +417,34 @@ export default function UserHints({ initialFavorite }) {
                     </div>
                   )}
                   
+                  {/* Show minting status information */}
+                  {mintingStatus === 'pending' && (
+                    <div className="mb-4 bg-amber-50 p-3 rounded-lg border border-amber-200 text-center">
+                      <div className="flex items-center justify-center gap-2 text-amber-700 mb-1">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent border-amber-700"></div>
+                        <p className="font-medium">Transaction Pending</p>
+                      </div>
+                      <p className="text-amber-600 text-sm">
+                        Your transaction has been submitted to the blockchain and is waiting for confirmation.
+                        This usually takes 10-30 seconds.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {mintingStatus === 'failed' && (
+                    <div className="mb-4 bg-red-50 p-3 rounded-lg border border-red-200">
+                      <p className="text-red-700 font-medium mb-1 flex items-center gap-2 justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Transaction Failed
+                      </p>
+                      <p className="text-red-600 text-sm text-center">
+                        There was an issue with the transaction. Please try minting again.
+                      </p>
+                    </div>
+                  )}
+                  
                   <div className="flex flex-col gap-3 w-full">
                     {/* Only show mint button if they have a favorite and no token_id yet */}
                     {userFavorite && userFavorite.token_id === null && (
@@ -431,9 +461,15 @@ export default function UserHints({ initialFavorite }) {
                               console.warn('No profile picture found, proceeding without image generation');
                             }
                             
+                            // Update UI to show we're initiating the transaction
+                            setMintingStatus('submitting');
+                            
                             // Start minting process
                             const result = await mintNFT(favoriteRowId);
                             console.log('Mint result:', result);
+                            
+                            // Update UI to show we're waiting for blockchain confirmation
+                            setMintingStatus('pending');
                             
                             // Update the token ID in the database with transaction hash
                             const updateResponse = await fetch('/api/update-token', {
@@ -449,6 +485,7 @@ export default function UserHints({ initialFavorite }) {
                             });
                             
                             if (!updateResponse.ok) {
+                              setMintingStatus('failed');
                               throw new Error('Failed to update transaction data');
                             }
                             
@@ -467,11 +504,13 @@ export default function UserHints({ initialFavorite }) {
                                 const llmType = llmTypeMap[selectedModel] || 'claude';
                                 
                                 // Generate and store the NFT image
+                                // Even if token ID isn't available yet, we can still generate the image
+                                // using the row ID, which is always available
                                 const imageUrl = await generateNFTImage({
                                   pfpUrl: profile.pfp,
                                   rowId: favoriteRowId,
                                   llmType,
-                                  tokenId: data.tokenId // This might be undefined, which is fine
+                                  tokenId: data.tokenId // This might be null, which is fine
                                 });
                                 
                                 // Update local state with the image URL if available
@@ -480,6 +519,9 @@ export default function UserHints({ initialFavorite }) {
                                     ...prev,
                                     image_url: imageUrl
                                   }));
+                                  
+                                  // Show transaction status even if token ID is not yet available
+                                  console.log('Successfully generated NFT image and stored it in the database');
                                 }
                               } catch (imageError) {
                                 console.error('Error generating NFT image:', imageError);
@@ -487,32 +529,72 @@ export default function UserHints({ initialFavorite }) {
                               }
                             }
                             
-                            // Update local state with the token ID if available
+                            // Update local state with the returned data
                             if (data.tokenId) {
+                              // If token ID is available, update both token_id and tx
                               setUserFavorite(prev => ({
                                 ...prev,
                                 token_id: data.tokenId,
                                 tx: result.txHash
                               }));
+                              console.log(`Successfully minted token #${data.tokenId}`);
+                              // Update minting status to confirmed
+                              setMintingStatus('confirmed');
                             } else {
-                              // If token ID not immediately available, handle the pending state
+                              // If token ID not immediately available, still update the UI with tx hash
                               setUserFavorite(prev => ({
                                 ...prev,
                                 tx: result.txHash
                               }));
+                              console.log('Transaction submitted, waiting for confirmation to get token ID');
+                              
+                              // Keep minting status as pending - we don't have the token ID yet
+                              // It will show the waiting for confirmation state
                             }
                           } catch (error) {
                             console.error('Error minting:', error);
+                            // Set status to failed on any error
+                            setMintingStatus('failed');
+                          } finally {
+                            // If for some reason we never got a confirmed status but the process completed
+                            // without errors, set status to confirmed (belt and suspenders)
+                            if (mintingStatus === 'pending' || mintingStatus === 'submitting') {
+                              setMintingStatus('confirmed');
+                            }
                           }
                         }}
-                        disabled={loading}
-                        style={{ backgroundColor: '#D2E8DF' }}
+                        disabled={loading || mintingStatus === 'submitting' || mintingStatus === 'pending'}
+                        style={{ 
+                          backgroundColor: mintingStatus === 'failed' ? '#FED7D7' : '#D2E8DF',
+                          cursor: (loading || mintingStatus === 'submitting' || mintingStatus === 'pending') ? 'not-allowed' : 'pointer'
+                        }}
                         className="w-full py-3 px-4 rounded-xl text-gray-800 font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 shadow-sm"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        Mint
+                        {mintingStatus === 'submitting' ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-t-transparent border-gray-700"></div>
+                            <span>Submitting Transaction...</span>
+                          </>
+                        ) : mintingStatus === 'pending' ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-t-transparent border-gray-700"></div>
+                            <span>Waiting For Confirmation...</span>
+                          </>
+                        ) : mintingStatus === 'failed' ? (
+                          <>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Mint Failed - Try Again</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <span>Mint</span>
+                          </>
+                        )}
                       </button>
                     )}
                     
