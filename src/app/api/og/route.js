@@ -88,7 +88,7 @@ export async function GET(request) {
     // Define base URL for template images
     const baseUrl = process.env.NODE_ENV === 'development' 
       ? 'http://localhost:3000' 
-      : process.env.NEXT_PUBLIC_BASE_URL || 'https://llm-rater-frame.vercel.app';
+      : process.env.NEXT_PUBLIC_APP_URL || 'https://llm-rater-frame.vercel.app';
       
     // Define image templates based on LLM and mode
     const templateBackgrounds = {

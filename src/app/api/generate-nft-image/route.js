@@ -26,7 +26,7 @@ export async function POST(request) {
     // Generate OG image URL
     const baseUrl = process.env.NODE_ENV === 'development' 
       ? 'http://localhost:3000' 
-      : process.env.NEXT_PUBLIC_BASE_URL;
+      : process.env.NEXT_PUBLIC_APP_URL;
       
     const ogImageUrl = `${baseUrl}/api/og?pfpUrl=${encodeURIComponent(pfpUrl)}&template=${template}&mode=nft`;
     

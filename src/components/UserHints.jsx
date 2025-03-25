@@ -554,7 +554,7 @@ export default function UserHints({ initialFavorite }) {
                             const imageFilename = imageUrl.split('/').pop();
                             
                             // Create the share URL with image query parameter
-                            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
+                            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
                             const shareUrl = `${baseUrl}?image=${imageFilename}`;
                             
                             // Create share text with all caps model name to make it more emphatic
