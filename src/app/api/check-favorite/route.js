@@ -17,10 +17,13 @@ export async function GET(request) {
       );
     }
 
+    // Get the most recent favorite for this user
     const query = `
-      SELECT id, favorite_llm, token_id
+      SELECT id, favorite_llm, token_id, image_url, tx, created_at
       FROM user_favorite_llm
       WHERE fid = $1
+      ORDER BY created_at DESC
+      LIMIT 1
     `;
 
     const result = await pool.query(query, [fid]);

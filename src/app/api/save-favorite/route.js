@@ -28,13 +28,14 @@ export async function POST(request) {
       );
     }
 
-    // Insert or update the user's favorite and return the row id
+    // Always create a new row - we'll get the latest one in check-favorite
     const query = `
       INSERT INTO user_favorite_llm (fid, favorite_llm)
       VALUES ($1, $2)
       RETURNING id
     `;
-
+    
+    console.log(`Creating new favorite for fid ${fid} with favorite_llm ${favorite_llm}`);
     const result = await pool.query(query, [fid, favorite_llm]);
     const rowId = result.rows[0]?.id;
 
