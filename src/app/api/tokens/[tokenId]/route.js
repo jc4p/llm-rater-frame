@@ -9,12 +9,12 @@ export async function GET(request, { params }) {
   
   try {
     // Special case for token #0 which was minted but doesn't exist in DB
-    // We'll use token #1's data but with ID 0
-    if (tokenId === '0') {
+    // We'll use token #2's data but with ID 0 or ID 1
+    if (tokenId === '0' || tokenId === '1') {
       console.log('Handling special case for token #0 - using token #1 data as fallback');
       
       // Query for token #1 as a fallback, making sure it's a number
-      const fallbackTokenId = 1;
+      const fallbackTokenId = 2;
       const { rows } = await sql`
         SELECT * FROM user_favorite_llm WHERE token_id = ${fallbackTokenId}
       `;
