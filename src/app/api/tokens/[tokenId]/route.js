@@ -1,52 +1,59 @@
 import { NextResponse } from 'next/server';
-import pg from 'pg';
+import { sql } from '@vercel/postgres';
 
-// Create a PostgreSQL connection pool
-const pool = new pg.Pool({
-  connectionString: process.env.POSTGRES_URL
-});
-
-const IMAGE_URL_LOOKUP = {
-  'claude-3.5': 'https://images.kasra.codes/claude-3.5.png',
-  'gemini-2.0': 'https://images.kasra.codes/gemini-2.0.png',
-  'gpt-4.5': 'https://images.kasra.codes/gpt-4.5.png',
-}
+// Define this as edge route
+export const runtime = 'edge';
 
 export async function GET(request, { params }) {
-  const data = await params;
-  const tokenId = data.tokenId;
+  const tokenId = params.tokenId;
   
   try {
     // Query the database for user's favorite LLM
-    const result = await pool.query(
-      'SELECT * FROM user_favorite_llm WHERE token_id = $1',
-      [tokenId]
-    );
+    const { rows } = await sql`
+      SELECT * FROM user_favorite_llm WHERE token_id = ${tokenId}
+    `;
 
-    if (result.rows.length === 0) {
+    if (rows.length === 0) {
       return NextResponse.json(
         { error: 'No favorite LLM found for this token' },
         { status: 404 }
       );
     }
 
-    const dbData = result.rows[0];
+    const dbData = rows[0];
     
-    // Transform into ERC-721 metadata format
+    // Default image if none is found in the database
+    const imageUrl = dbData.image_url || 'https://images.kasra.codes/favorite-llm/image-url-default.png';
+    
+    // Get the display name for the AI model
+    const aiDisplayNames = {
+      'claude-3.5': 'Claude',
+      'gemini-2.0': 'Gemini',
+      'gpt-4.5': 'ChatGPT',
+      'o3-mini': 'ChatGPT'
+    };
+    
+    const aiName = aiDisplayNames[dbData.favorite_llm] || dbData.favorite_llm;
+    
+    // Transform into ERC-721 metadata format with better naming and description
     return NextResponse.json({
-      name: `AI Personality Mirror #${tokenId}`,
-      description: "This NFT represents a user's AI personality analysis results, showing which AI model best understands their online presence.",
-      image: IMAGE_URL_LOOKUP[dbData.favorite_llm] || 'https://images.kasra.codes/claude-3.5.png',
+      name: `${aiName} Best Friend #${tokenId}`,
+      description: `This NFT proves that ${aiName} knows you better than any other AI. It analyzed your Farcaster posts and discovered your personality traits, interests, and digital persona.`,
+      image: imageUrl,
       background_color: "D2E8DF",
       attributes: [
         {
-          trait_type: "Chosen AI",
+          trait_type: "AI Best Friend",
+          value: aiName
+        },
+        {
+          trait_type: "LLM Model",
           value: dbData.favorite_llm || "Unknown"
         },
         {
           trait_type: "Analysis Date",
           display_type: "date",
-          value: dbData.created_at?.getTime() / 1000 || null
+          value: Math.floor(new Date(dbData.created_at).getTime() / 1000)
         }
       ]
     });
