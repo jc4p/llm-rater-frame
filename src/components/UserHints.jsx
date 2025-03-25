@@ -87,7 +87,7 @@ export default function UserHints({ initialFavorite }) {
       }
       
       console.log(`Fetching ${model} hints for FID ${window.userFid}`);
-      const response = await fetch(`/api/hints?fid=${window.userFid}&limit=150&model=${model}`);
+      const response = await fetch(`/api/hints?fid=${window.userFid}&limit=300&model=${model}`);
       const data = await response.json();
       
       if (!response.ok) {
