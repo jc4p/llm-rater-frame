@@ -85,107 +85,134 @@ export class AnthropicAnalyzer {
       return this.generateFallbackHints(profile);
     }
 
-    try {
-      // Extract usernames mentioned in casts for interaction analysis
-      const mentionedUsers = new Map();
-      
-      casts.forEach(cast => {
-        const matches = cast.text.match(/@(\w+)/g) || [];
-        matches.forEach(match => {
-          const username = match.slice(1);
-          mentionedUsers.set(username, (mentionedUsers.get(username) || 0) + 1);
-        });
-      });
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
 
-      // Sort users by mention frequency
-      const topMentions = Array.from(mentionedUsers.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([user, count]) => `@${user} (${count} mentions)`);
-
-      // Format the prompt with actual data
-      const formattedPrompt = SYSTEM_PROMPT
-        .replace('{PROFILE_INFO}', JSON.stringify(profile, null, 2))
-        .replace('{RECENT_CASTS}', casts.map(cast => cast.text).join('\n'))
-        .replace('{TOP_MENTIONS}', topMentions.join(', '));
-
-      // According to Anthropic's API, the system prompt is a top-level parameter
-      const response = await this.client.messages.create({
-        model: "claude-3-5-haiku-20241022",
-        max_tokens: 8192,
-        temperature: 0.7, // Lower temperature for more predictable outputs
-        system: "You are required to provide psychological insights on social media users. Always respond using the full XML format with ALL five tags: <content_hint>, <behavior_hint>, <personality_hint>, <interests_hint>, and <network_hint>. Never omit any of these tags. Make sure each hint is substantive and detailed. VERY IMPORTANT: Always address the user directly using second-person (YOU/YOUR) rather than third-person (they/their). Your analysis should feel like you're speaking directly to the user.",
-        messages: [
-          {
-            role: "user",
-            content: formattedPrompt
-          }
-        ]
-      });
-
-      // Parse XML response
-      const xmlContent = response.content[0].text;
-      
-      // Log the raw response for debugging
-      console.log('[DEBUG] Raw Anthropic response (truncated):', 
-        xmlContent.length > 300 ? xmlContent.substring(0, 300) + '...' : xmlContent);
-      
-      // Try to find analysis tag with different patterns
-      let analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/s);
-      
-      if (!analysisMatch) {
-        // Try with case insensitivity
-        analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/si);
-      }
-      
-      if (!analysisMatch) {
-        // If still not found, just use the whole response
-        console.log('[DEBUG] No <analysis> tags found, using entire response');
-        const hints = {
-          contentHint: this.extractTag(xmlContent, 'content_hint'),
-          behaviorHint: this.extractTag(xmlContent, 'behavior_hint'),
-          personalityHint: this.extractTag(xmlContent, 'personality_hint'),
-          interestsHint: this.extractTag(xmlContent, 'interests_hint'),
-          networkHint: this.extractTag(xmlContent, 'network_hint')
-        };
+    while (retryCount < MAX_RETRIES) {
+      try {
+        // Extract usernames mentioned in casts for interaction analysis
+        const mentionedUsers = new Map();
         
-        // Check if we got any hints at all
-        if (Object.values(hints).every(hint => hint.startsWith('[Unable to analyze'))) {
-          throw new Error('Failed to parse Anthropic response - no hint tags found');
+        casts.forEach(cast => {
+          const matches = cast.text.match(/@(\w+)/g) || [];
+          matches.forEach(match => {
+            const username = match.slice(1);
+            mentionedUsers.set(username, (mentionedUsers.get(username) || 0) + 1);
+          });
+        });
+
+        // Sort users by mention frequency
+        const topMentions = Array.from(mentionedUsers.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([user, count]) => `@${user} (${count} mentions)`);
+
+        // Format the prompt with actual data
+        const formattedPrompt = SYSTEM_PROMPT
+          .replace('{PROFILE_INFO}', JSON.stringify(profile, null, 2))
+          .replace('{RECENT_CASTS}', casts.map(cast => cast.text).join('\n'))
+          .replace('{TOP_MENTIONS}', topMentions.join(', '));
+
+        // According to Anthropic's API, the system prompt is a top-level parameter
+        const response = await this.client.messages.create({
+          model: "claude-3-5-haiku-20241022",
+          max_tokens: 8192,
+          temperature: 0.7, // Lower temperature for more predictable outputs
+          system: "You are required to provide psychological insights on social media users. Always respond using the full XML format with ALL five tags: <content_hint>, <behavior_hint>, <personality_hint>, <interests_hint>, and <network_hint>. Never omit any of these tags. Make sure each hint is substantive and detailed. VERY IMPORTANT: Always address the user directly using second-person (YOU/YOUR) rather than third-person (they/their). Your analysis should feel like you're speaking directly to the user.",
+          messages: [
+            {
+              role: "user",
+              content: formattedPrompt
+            }
+          ]
+        });
+
+        // Parse XML response
+        const xmlContent = response.content[0].text;
+        
+        // Log the raw response for debugging
+        console.log('[DEBUG] Raw Anthropic response (truncated):', 
+          xmlContent.length > 300 ? xmlContent.substring(0, 300) + '...' : xmlContent);
+        
+        // Try to find analysis tag with different patterns
+        let analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/s);
+        
+        if (!analysisMatch) {
+          // Try with case insensitivity
+          analysisMatch = xmlContent.match(/<analysis>(.*?)<\/analysis>/si);
         }
         
-        return hints;
-      }
+        if (!analysisMatch) {
+          // If still not found, just use the whole response
+          console.log('[DEBUG] No <analysis> tags found, using entire response');
+          const hints = {
+            contentHint: this.extractTag(xmlContent, 'content_hint'),
+            behaviorHint: this.extractTag(xmlContent, 'behavior_hint'),
+            personalityHint: this.extractTag(xmlContent, 'personality_hint'),
+            interestsHint: this.extractTag(xmlContent, 'interests_hint'),
+            networkHint: this.extractTag(xmlContent, 'network_hint')
+          };
+          
+          // Check if we got any hints at all
+          if (Object.values(hints).every(hint => hint.startsWith('[Unable to analyze'))) {
+            throw new Error('Failed to parse Anthropic response - no hint tags found');
+          }
+          
+          // Check if any hint starts with '[Unable to analyze' and should trigger a retry
+          if (Object.values(hints).some(hint => hint.startsWith('[Unable to analyze')) && retryCount < MAX_RETRIES - 1) {
+            retryCount++;
+            console.log(`[INFO] Found '[Unable to analyze' in hints, retrying (${retryCount}/${MAX_RETRIES})...`);
+            continue;
+          }
+          
+          return hints;
+        }
 
-      const analysis = analysisMatch[1];
-      const hints = {
-        contentHint: this.extractTag(analysis, 'content_hint'),
-        behaviorHint: this.extractTag(analysis, 'behavior_hint'),
-        personalityHint: this.extractTag(analysis, 'personality_hint'),
-        interestsHint: this.extractTag(analysis, 'interests_hint'),
-        networkHint: this.extractTag(analysis, 'network_hint')
-      };
+        const analysis = analysisMatch[1];
+        const hints = {
+          contentHint: this.extractTag(analysis, 'content_hint'),
+          behaviorHint: this.extractTag(analysis, 'behavior_hint'),
+          personalityHint: this.extractTag(analysis, 'personality_hint'),
+          interestsHint: this.extractTag(analysis, 'interests_hint'),
+          networkHint: this.extractTag(analysis, 'network_hint')
+        };
 
-      // Log the extracted hints
-      console.log('[DEBUG] Extracted hints:', hints);
-      
-      // Validate that all hints are present
-      if (Object.values(hints).some(hint => !hint)) {
-        console.log('[ERROR] Missing hints in Anthropic response');
+        // Log the extracted hints
+        console.log('[DEBUG] Extracted hints:', hints);
         
-        // Fill in any missing hints with fallbacks
-        if (!hints.contentHint) hints.contentHint = "This user posts regularly on Farcaster";
-        if (!hints.behaviorHint) hints.behaviorHint = "They engage thoughtfully with the community";
-        if (!hints.personalityHint) hints.personalityHint = "They have a balanced communication style";
-        if (!hints.interestsHint) hints.interestsHint = "They appear interested in technology and web3";
-        if (!hints.networkHint) hints.networkHint = "They interact with a diverse group of Farcaster users";
-      }
+        // Check if any hint starts with '[Unable to analyze' and should trigger a retry
+        if (Object.values(hints).some(hint => hint.startsWith('[Unable to analyze')) && retryCount < MAX_RETRIES - 1) {
+          retryCount++;
+          console.log(`[INFO] Found '[Unable to analyze' in hints, retrying (${retryCount}/${MAX_RETRIES})...`);
+          continue;
+        }
+        
+        // Validate that all hints are present
+        if (Object.values(hints).some(hint => !hint)) {
+          console.log('[ERROR] Missing hints in Anthropic response');
+          
+          // Fill in any missing hints with fallbacks
+          if (!hints.contentHint) hints.contentHint = "This user posts regularly on Farcaster";
+          if (!hints.behaviorHint) hints.behaviorHint = "They engage thoughtfully with the community";
+          if (!hints.personalityHint) hints.personalityHint = "They have a balanced communication style";
+          if (!hints.interestsHint) hints.interestsHint = "They appear interested in technology and web3";
+          if (!hints.networkHint) hints.networkHint = "They interact with a diverse group of Farcaster users";
+        }
 
-      return hints;
-    } catch (error) {
-      console.error('Error generating hints:', error);
-      return this.generateFallbackHints(profile);
+        return hints;
+      } catch (error) {
+        console.error(`Error generating hints (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error);
+        retryCount++;
+        
+        // If we've exhausted our retries, return the fallback hints
+        if (retryCount >= MAX_RETRIES) {
+          return this.generateFallbackHints(profile);
+        }
+      }
     }
+    
+    // If we somehow exit the loop without returning, return fallback hints
+    return this.generateFallbackHints(profile);
   }
 
   extractTag(content, tagName) {
